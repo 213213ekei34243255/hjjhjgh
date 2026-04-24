@@ -7,7 +7,11 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocketServer({ port: PORT });
-const client = new speech.SpeechClient();
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+
+const client = new speech.SpeechClient({
+  credentials: credentials,
+});
 
 console.log("🚀 Server running on ws://localhost:8080");
 function startStreaming(url, lang, ws, state) {
