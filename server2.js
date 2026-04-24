@@ -1,17 +1,26 @@
 import cluster from "cluster";
 import os from "os";
 
-const numCPUs = 2; // ✅ your Render plan (2 CPUs)
+import http from "http";
+import { WebSocketServer } from "ws";
+import speech from "@google-cloud/speech";
+import ffmpeg from "fluent-ffmpeg";
+import axios from "axios";
 
+ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
+
+const numCPUs = 2; // your Render CPUs
+
+// =========================
+// 🧠 MASTER
+// =========================
 if (cluster.isPrimary) {
   console.log(`🧠 Master ${process.pid} running`);
 
-  // 🔥 spawn workers
   for (let i = 0; i < numCPUs; i++) {
     cluster.fork();
   }
 
-  // 🔄 auto-restart worker if it crashes
   cluster.on("exit", (worker) => {
     console.log(`❌ Worker ${worker.process.pid} died. Restarting...`);
     cluster.fork();
@@ -20,16 +29,8 @@ if (cluster.isPrimary) {
 } else {
 
   // =========================
-  // 👇 YOUR ORIGINAL SERVER (unchanged logic)
+  // 👇 WORKER SERVER
   // =========================
-
-  import http from "http";
-  import { WebSocketServer } from "ws";
-  import speech from "@google-cloud/speech";
-  import ffmpeg from "fluent-ffmpeg";
-  import axios from "axios";
-
-  ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
 
   const PORT = process.env.PORT || 8080;
 
@@ -41,7 +42,7 @@ if (cluster.isPrimary) {
   const wss = new WebSocketServer({ server });
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Worker ${process.pid} running on port ${PORT}`);
+    console.log(`🚀 Worker ${process.pid} running`);
   });
 
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -80,7 +81,7 @@ if (cluster.isPrimary) {
 
     state.isStreaming = true;
 
-    console.log(`🎧 START (${process.pid}):`, url, "|", lang);
+    console.log(`🎧 START (${process.pid})`, url);
 
     const realUrl = await resolveStream(url);
 
@@ -149,7 +150,6 @@ if (cluster.isPrimary) {
   wss.on("connection", (ws) => {
     console.log(`🔥 Client connected (Worker ${process.pid})`);
 
-    // ⚠️ per-worker limit
     if (wss.clients.size > 5) {
       ws.send(JSON.stringify({ error: "Server busy" }));
       ws.close();
