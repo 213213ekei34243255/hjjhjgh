@@ -6,7 +6,7 @@ import ffmpegPath from "ffmpeg-static";
 import axios from "axios";
 
 // ✅ FFmpeg setup (use static safely)
-ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
 
 // ✅ PORT
 const PORT = process.env.PORT || 8080;
