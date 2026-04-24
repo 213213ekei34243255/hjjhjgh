@@ -4,12 +4,17 @@ import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 
 ffmpeg.setFfmpegPath(ffmpegPath);
-
 import http from "http";
 
+const PORT = process.env.PORT || 8080;
+
+// ✅ CREATE SERVER
 const server = http.createServer();
+
+// ✅ ATTACH WEBSOCKET
 const wss = new WebSocketServer({ server });
 
+// ✅ START SERVER
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
 });
