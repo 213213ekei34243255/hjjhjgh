@@ -169,8 +169,15 @@ if (cluster.isPrimary) {
         const data = JSON.parse(msg);
 
         if (data.type === "start") {
-          if (state.isStreaming) return;
-          startStreaming(data.url, data.lang, ws, state);
+          if (state.isStreaming && state.currentLang === data.lang) return;
+        
+          stopStreaming(state);
+        
+          state.currentLang = data.lang;
+        
+          setTimeout(() => {
+            startStreaming(data.url, data.lang, ws, state);
+          }, 300);
         }
 
         if (data.type === "stop") {
