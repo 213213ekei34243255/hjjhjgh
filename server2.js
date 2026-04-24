@@ -5,7 +5,8 @@ import ffmpegPath from "ffmpeg-static";
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const wss = new WebSocketServer({ port: 8080 });
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocketServer({ port: PORT });
 const client = new speech.SpeechClient();
 
 console.log("🚀 Server running on ws://localhost:8080");
