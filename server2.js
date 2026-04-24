@@ -5,11 +5,7 @@ import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 
 // ✅ Use correct ffmpeg binary
-if (process.env.RENDER) {
-  ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
-} else {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-}
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ✅ PORT (Render required)
 const PORT = process.env.PORT || 8080;
