@@ -3,16 +3,16 @@ import { WebSocketServer } from "ws";
 import speech from "@google-cloud/speech";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
+import axios from "axios";
 
-// ✅ Use correct ffmpeg binary
+// ✅ FFmpeg setup (use static safely)
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// ✅ PORT (Render required)
+// ✅ PORT
 const PORT = process.env.PORT || 8080;
 
-// ✅ HTTP + WebSocket server
+// ✅ HTTP server (Render health check fix)
 const server = http.createServer((req, res) => {
-  // 👇 THIS fixes "No open HTTP ports detected"
   res.writeHead(200);
   res.end("OK");
 });
@@ -23,13 +23,34 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 Server running on port", PORT);
 });
 
-// ✅ Google credentials
+// ✅ Google Speech
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-
 const client = new speech.SpeechClient({ credentials });
 
+
 // =========================
-// 🔥 CLEANUP FUNCTION
+// 🔥 RESOLVE REAL STREAM URL
+// =========================
+async function resolveStream(url) {
+  try {
+    const res = await axios.get(url, {
+      maxRedirects: 5,
+      responseType: "stream",
+    });
+
+    const finalUrl = res.request?.res?.responseUrl || url;
+    console.log("🔗 Resolved URL:", finalUrl);
+    return finalUrl;
+
+  } catch (err) {
+    console.error("⚠️ Resolve failed, using original:", err.message);
+    return url;
+  }
+}
+
+
+// =========================
+// 🔥 CLEANUP
 // =========================
 function stopStreaming(state) {
   if (state.restartTimer) {
@@ -48,16 +69,20 @@ function stopStreaming(state) {
   }
 }
 
+
 // =========================
 // 🎧 START STREAMING
 // =========================
-function startStreaming(url, lang, ws, state) {
+async function startStreaming(url, lang, ws, state) {
   console.log("🎧 START:", url);
+
+  // 🔥 resolve redirect URL first
+  const realUrl = await resolveStream(url);
 
   const request = {
     config: {
       encoding: "LINEAR16",
-      sampleRateHertz: 8000, // keep low for stability
+      sampleRateHertz: 8000,
       languageCode: lang || "en-US",
     },
     interimResults: false,
@@ -83,18 +108,16 @@ function startStreaming(url, lang, ws, state) {
       }
     });
 
-  // 🎧 FFmpeg (STABLE CONFIG)
-  let command = ffmpeg(url).inputOptions([
+  // 🎧 FFmpeg (FIXED + SAFE)
+  let command = ffmpeg(realUrl).inputOptions([
+    "-f", "mp3",                        // 🔥 FORCE format (critical)
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
     "-fflags", "+genpts",
     "-probesize", "32",
     "-analyzeduration", "0",
-    "-thread_queue_size", "512",
-    "-vn",
-    "-sn",
-    "-dn",
+    "-thread_queue_size", "1024",
     "-loglevel", "error"
   ]);
 
@@ -110,7 +133,7 @@ function startStreaming(url, lang, ws, state) {
     })
     .pipe(state.recognizeStream);
 
-  // 🔄 Restart before 5 min limit
+  // 🔄 Restart safety
   state.restartTimer = setTimeout(() => {
     console.log("🔄 Restarting stream");
     stopStreaming(state);
@@ -118,8 +141,9 @@ function startStreaming(url, lang, ws, state) {
   }, 270000);
 }
 
+
 // =========================
-// 🔌 WEBSOCKET HANDLER
+// 🔌 WEBSOCKET
 // =========================
 wss.on("connection", (ws) => {
   console.log("🔥 Client connected");
@@ -142,6 +166,7 @@ wss.on("connection", (ws) => {
       if (data.type === "stop") {
         stopStreaming(state);
       }
+
     } catch (err) {
       console.error("❌ Parse error:", err.message);
     }
