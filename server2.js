@@ -4,26 +4,33 @@ import speech from "@google-cloud/speech";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 
-// ✅ FFmpeg setup
-ffmpeg.setFfmpegPath(ffmpegPath);
+// ✅ Use correct ffmpeg binary
+if (process.env.RENDER) {
+  ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
+} else {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 // ✅ PORT (Render required)
 const PORT = process.env.PORT || 8080;
 
 // ✅ HTTP + WebSocket server
-const server = http.createServer();
+const server = http.createServer((req, res) => {
+  // 👇 THIS fixes "No open HTTP ports detected"
+  res.writeHead(200);
+  res.end("OK");
+});
+
 const wss = new WebSocketServer({ server });
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 Server running on port", PORT);
 });
 
 // ✅ Google credentials
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
-const client = new speech.SpeechClient({
-  credentials,
-});
+const client = new speech.SpeechClient({ credentials });
 
 // =========================
 // 🔥 CLEANUP FUNCTION
@@ -50,12 +57,11 @@ function stopStreaming(state) {
 // =========================
 function startStreaming(url, lang, ws, state) {
   console.log("🎧 START:", url);
-  console.log("🌍 LANG:", lang);
 
   const request = {
     config: {
       encoding: "LINEAR16",
-      sampleRateHertz: 8000, // lighter → more stable
+      sampleRateHertz: 8000, // keep low for stability
       languageCode: lang || "en-US",
     },
     interimResults: false,
@@ -76,26 +82,30 @@ function startStreaming(url, lang, ws, state) {
       const transcript = result.alternatives?.[0]?.transcript;
 
       if (transcript) {
-        console.log("🎤 FINAL:", transcript);
+        console.log("🎤", transcript);
         ws.send(JSON.stringify({ text: transcript, lang }));
       }
     });
 
-  // 🎧 FFmpeg stream
+  // 🎧 FFmpeg (STABLE CONFIG)
   let command = ffmpeg(url).inputOptions([
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
+    "-fflags", "+genpts",
+    "-probesize", "32",
+    "-analyzeduration", "0",
+    "-thread_queue_size", "512",
     "-vn",
     "-sn",
     "-dn",
-    "-loglevel", "error",
+    "-loglevel", "error"
   ]);
 
   state.ffmpegStream = command
     .noVideo()
     .audioCodec("pcm_s16le")
-    .audioFrequency(16000)
+    .audioFrequency(8000)
     .audioChannels(1)
     .format("s16le")
     .on("error", (err) => {
@@ -108,7 +118,7 @@ function startStreaming(url, lang, ws, state) {
   state.restartTimer = setTimeout(() => {
     console.log("🔄 Restarting stream");
     stopStreaming(state);
-    setTimeout(() => startStreaming(url, lang, ws, state), 300);
+    setTimeout(() => startStreaming(url, lang, ws, state), 500);
   }, 270000);
 }
 
@@ -118,7 +128,7 @@ function startStreaming(url, lang, ws, state) {
 wss.on("connection", (ws) => {
   console.log("🔥 Client connected");
 
-  let state = {
+  const state = {
     recognizeStream: null,
     ffmpegStream: null,
     restartTimer: null,
@@ -137,7 +147,7 @@ wss.on("connection", (ws) => {
         stopStreaming(state);
       }
     } catch (err) {
-      console.error("❌ Message parse error:", err.message);
+      console.error("❌ Parse error:", err.message);
     }
   });
 
