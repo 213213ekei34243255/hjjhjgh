@@ -5,8 +5,14 @@ import ffmpegPath from "ffmpeg-static";
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const PORT = process.env.PORT || 8080;
-const wss = new WebSocketServer({ port: PORT });
+import http from "http";
+
+const server = http.createServer();
+const wss = new WebSocketServer({ server });
+
+server.listen(PORT, () => {
+  console.log("🚀 Server running on port", PORT);
+});
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
 const client = new speech.SpeechClient({
@@ -48,7 +54,12 @@ function startStreaming(url, lang, ws, state) {
             }
         });
 
-    let command = ffmpeg(url);
+    let command = ffmpeg(url).inputOptions([
+      "-reconnect", "1",
+      "-reconnect_streamed", "1",
+      "-reconnect_delay_max", "5",
+      "-loglevel", "error"
+    ]);
 
 // ✅ ONLY apply headers for RAI
     if (url.includes("rai.it")) {
@@ -59,8 +70,9 @@ function startStreaming(url, lang, ws, state) {
     }
 
     state.ffmpegStream = command
+        .noVideo()
         .audioCodec("pcm_s16le")
-        .audioFrequency(16000)
+        .audioFrequency(8000)
         .audioChannels(1)
         .format("s16le")
         .on("error", (err) => {
@@ -75,7 +87,7 @@ function startStreaming(url, lang, ws, state) {
                 return;
             }
 
-            console.error("❌ FFMPEG REAL ERROR:", err);
+            console.error("❌ FFMPEG ERROR:", err.message);
         })
         .pipe(state.recognizeStream);
 
