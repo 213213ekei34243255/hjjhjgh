@@ -110,14 +110,13 @@ async function startStreaming(url, lang, ws, state) {
 
   // 🎧 FFmpeg (FIXED + SAFE)
   let command = ffmpeg(realUrl).inputOptions([
-    "-f", "mp3",                        // 🔥 FORCE format (critical)
     "-reconnect", "1",
     "-reconnect_streamed", "1",
     "-reconnect_delay_max", "5",
-    "-fflags", "+genpts",
-    "-probesize", "32",
-    "-analyzeduration", "0",
-    "-thread_queue_size", "1024",
+    "-fflags", "+discardcorrupt",
+    "-err_detect", "ignore_err",
+    "-probesize", "500000",
+    "-analyzeduration", "1000000",
     "-loglevel", "error"
   ]);
 
