@@ -2,7 +2,7 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import speech from "@google-cloud/speech";
 import ffmpeg from "fluent-ffmpeg";
-import ffmpegPath from "ffmpeg-static";
+
 import axios from "axios";
 
 // ✅ FFmpeg setup (use static safely)
