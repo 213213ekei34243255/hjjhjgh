@@ -109,6 +109,7 @@ if (cluster.isPrimary) {
       });
 
     let command = ffmpeg(realUrl).inputOptions([
+      "-threads", "1",
       "-reconnect", "1",
       "-reconnect_streamed", "1",
       "-reconnect_delay_max", "5",
@@ -150,7 +151,7 @@ if (cluster.isPrimary) {
   wss.on("connection", (ws) => {
     console.log(`🔥 Client connected (Worker ${process.pid})`);
 
-    if (wss.clients.size > 5) {
+    if (wss.clients.size > 2) {
       ws.send(JSON.stringify({ error: "Server busy" }));
       ws.close();
       return;
