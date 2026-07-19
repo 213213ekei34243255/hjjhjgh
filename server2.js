@@ -64,18 +64,27 @@ if (cluster.isPrimary) {
   async function stopStreaming(state) {
     if (state.restartTimer) clearTimeout(state.restartTimer);
 
-    if (state.recognizeStream) {
-      await state.recognizeStream.close();
-      state.recognizeStream = null;
+    if (state.audioTimer) {
+        clearInterval(state.audioTimer);
+        state.audioTimer = null;
+    }
+
+
+    try {
+        if (state.recognizeStream) {
+            state.recognizeStream.sendAudio(audioQueue.shift());
+        }
+        } catch (err) {
+        console.error("sendAudio:", err.message);
     }
 
     if (state.ffmpegStream && state.ffmpegStream.destroy) {
-      state.ffmpegStream.destroy();
-      state.ffmpegStream = null;
+        state.ffmpegStream.destroy();
+        state.ffmpegStream = null;
     }
 
     state.isStreaming = false;
-  }
+    }
 
   async function startStreaming(url, lang, ws, state) {
     if (state.isStreaming) return;
@@ -167,22 +176,31 @@ if (cluster.isPrimary) {
       })
       .pipe();
   
-    state.ffmpegStream.on("data", (chunk) => {
-      console.log("Audio chunk:", chunk.length);
-    });
+    let audioBuffer = Buffer.alloc(0);
+    const audioQueue = [];
   
     let buffer = Buffer.alloc(0);
 
     state.ffmpegStream.on("data", (chunk) => {
-      buffer = Buffer.concat([buffer, chunk]);
-    
-      while (buffer.length >= 3200) {
-        const piece = buffer.subarray(0, 3200);
-        buffer = buffer.subarray(3200);
-    
-        rt.sendAudio(piece);
+      audioBuffer = Buffer.concat([audioBuffer, chunk]);
+
+      while (audioBuffer.length >= 3200) {
+            audioQueue.push(audioBuffer.subarray(0, 3200));
+            audioBuffer = audioBuffer.subarray(3200);
       }
+    
     });
+    state.audioTimer = setInterval(() => {
+        if (!state.recognizeStream) return;
+
+        if (audioQueue.length === 0) return;
+
+        try {
+            state.recognizeStream.sendAudio(audioQueue.shift());
+        } catch (err) {
+            console.error("sendAudio:", err.message);
+        }
+        }, 100);
       
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
@@ -209,6 +227,7 @@ if (cluster.isPrimary) {
     }
 
     const state = {
+      audioTimer: null,
       recognizeStream: null,
       ffmpegStream: null,
       restartTimer: null,
