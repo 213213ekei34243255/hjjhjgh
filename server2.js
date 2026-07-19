@@ -3,7 +3,7 @@ import os from "os";
 
 import http from "http";
 import { WebSocketServer } from "ws";
-import speech from "@google-cloud/speech";
+import { AssemblyAI } from "assemblyai";
 import ffmpeg from "fluent-ffmpeg";
 import axios from "axios";
 
@@ -45,8 +45,9 @@ if (cluster.isPrimary) {
     console.log(`🚀 Worker ${process.pid} running`);
   });
 
-  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  const client = new speech.SpeechClient({ credentials });
+  const client = new AssemblyAI({
+    apiKey: process.env.ASSEMBLYAI_API_KEY,
+  });
 
   async function resolveStream(url) {
     try {
@@ -64,7 +65,7 @@ if (cluster.isPrimary) {
     if (state.restartTimer) clearTimeout(state.restartTimer);
 
     if (state.recognizeStream) {
-      state.recognizeStream.destroy();
+      await state.recognizeStream.close();
       state.recognizeStream = null;
     }
 
@@ -85,42 +86,32 @@ if (cluster.isPrimary) {
 
     const realUrl = await resolveStream(url);
 
-    const request = {
-      config: {
-        encoding: "LINEAR16",
-        sampleRateHertz: 16000,
-        languageCode: lang || "en-US",
-        enableAutomaticPunctuation: true,
-      },
-      interimResults: true,
-    };
-
-    state.recognizeStream = client
-      .streamingRecognize(request)
-      .on("error", (err) => {
-        console.error("Google Speech Error:", err);
-        restartStream(url, lang, ws, state);
-      })
-      .on("data", (data) => {
-        console.log("Google Response:", JSON.stringify(data));
+    const rt = client.streaming.transcriber({
+      sampleRate: 16000,
+      speechModel: "universal-3-5-pro",
+      mode: "balanced",
+    });
     
-        const result = data.results?.[0];
-        if (!result) return;
+    await rt.connect();
     
-        const transcript = result.alternatives?.[0]?.transcript;
+    state.recognizeStream = rt;
     
-        if (transcript) {
-          console.log("Transcript:", transcript);
+    rt.on("turn", (turn) => {
+      if (!turn.transcript) return;
     
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({
-              text: transcript,
-              lang,
-              final: result.isFinal,
-            }));
-          }
-        }
-      });
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          text: turn.transcript,
+          lang,
+          final: turn.end_of_turn,
+        }));
+      }
+    });
+    
+    rt.on("error", (err) => {
+      console.error(err);
+      restartStream(url, lang, ws, state);
+    });
 
     let command = ffmpeg(realUrl).inputOptions([
       "-threads", "1",
@@ -150,7 +141,12 @@ if (cluster.isPrimary) {
         console.error("FFmpeg Error:", err);
         restartStream(url, lang, ws, state);
       })
-      .pipe(state.recognizeStream);
+      .pipe()
+      .on("data", (chunk) => {
+        if (state.recognizeStream) {
+          state.recognizeStream.sendAudio(chunk);
+        }
+      });
 
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
