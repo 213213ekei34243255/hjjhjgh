@@ -6,7 +6,7 @@ import { WebSocketServer } from "ws";
 import { AssemblyAI } from "assemblyai";
 import ffmpeg from "fluent-ffmpeg";
 import axios from "axios";
-import { Writable } from "node:stream";
+
 ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
 
 const numCPUs = 2; // your Render CPUs
@@ -135,8 +135,7 @@ if (cluster.isPrimary) {
       console.log("AssemblyAI CLOSED:", code, reason);
     });
   
-    const webWritable = rt.stream();
-    const nodeWritable = Writable.fromWeb(webWritable);
+    
   
     const command = ffmpeg(realUrl).inputOptions([
       "-threads", "1",
@@ -172,8 +171,19 @@ if (cluster.isPrimary) {
       console.log("Audio chunk:", chunk.length);
     });
   
-    state.ffmpegStream.pipe(nodeWritable);
-  
+    let buffer = Buffer.alloc(0);
+
+    state.ffmpegStream.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+    
+      while (buffer.length >= 3200) {
+        const piece = buffer.subarray(0, 3200);
+        buffer = buffer.subarray(3200);
+    
+        rt.sendAudio(piece);
+      }
+    });
+      
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
     }, 270000);
