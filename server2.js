@@ -141,12 +141,7 @@ if (cluster.isPrimary) {
         console.error("FFmpeg Error:", err);
         restartStream(url, lang, ws, state);
       })
-      .pipe()
-      .on("data", (chunk) => {
-        if (state.recognizeStream) {
-          state.recognizeStream.sendAudio(chunk);
-        }
-      });
+      .pipe(state.recognizeStream.stream());
 
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
