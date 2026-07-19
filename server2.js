@@ -61,7 +61,7 @@ if (cluster.isPrimary) {
     }
   }
 
-  function stopStreaming(state) {
+  async function stopStreaming(state) {
     if (state.restartTimer) clearTimeout(state.restartTimer);
 
     if (state.recognizeStream) {
