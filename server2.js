@@ -79,66 +79,66 @@ if (cluster.isPrimary) {
 
   async function startStreaming(url, lang, ws, state) {
     if (state.isStreaming) return;
-
+  
     state.isStreaming = true;
-
+  
     console.log(`🎧 START (${process.pid})`, url);
-
+  
     const realUrl = await resolveStream(url);
-
+  
     const rt = client.streaming.transcriber({
-      
       sampleRate: 16000,
       speechModel: "universal-3-5-pro",
       mode: "balanced",
     });
+  
     console.log("stream() exists:", typeof rt.stream);
-    
     console.log("Connecting to AssemblyAI...");
-
+  
     try {
       await rt.connect();
       console.log("✅ connect() finished");
     } catch (e) {
       console.error("❌ connect() failed:", e);
+      state.isStreaming = false;
       return;
     }
+  
+    state.recognizeStream = rt;
+  
     rt.on("open", (session) => {
       console.log("AssemblyAI connected:", session);
     });
-    
+  
     rt.on("turn", (turn) => {
       console.log("TURN:", turn.transcript);
+  
+      if (!turn.transcript) return;
+  
+      if (ws.readyState === ws.OPEN) {
+        ws.send(
+          JSON.stringify({
+            text: turn.transcript,
+            lang,
+            final: turn.end_of_turn,
+          })
+        );
+      }
     });
-    
+  
     rt.on("error", (err) => {
       console.error("AssemblyAI ERROR:", err);
+      restartStream(url, lang, ws, state);
     });
-    
+  
     rt.on("close", (code, reason) => {
       console.log("AssemblyAI CLOSED:", code, reason);
     });
-    
-    state.recognizeStream = rt;
-    
-    rt.on("turn", (turn) => {
-      if (!turn.transcript) return;
-    
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({
-          text: turn.transcript,
-          lang,
-          final: turn.end_of_turn,
-        }));
-      }
-    });
-    
-    rt.on("error", (err) => {
-      console.error(err);
-      restartStream(url, lang, ws, state);
-    });
-
-    let command = ffmpeg(realUrl).inputOptions([
+  
+    const webWritable = rt.stream();
+    const nodeWritable = Writable.fromWeb(webWritable);
+  
+    const command = ffmpeg(realUrl).inputOptions([
       "-threads", "1",
       "-reconnect", "1",
       "-reconnect_streamed", "1",
@@ -147,34 +147,9 @@ if (cluster.isPrimary) {
       "-err_detect", "ignore_err",
       "-probesize", "500000",
       "-analyzeduration", "1000000",
-      "-loglevel", "error"
+      "-loglevel", "error",
     ]);
-
-    state.ffmpegStream = command
-      .noVideo()
-      .audioCodec("pcm_s16le")
-      .audioFrequency(16000)
-      .audioChannels(1)
-      .format("s16le")
-      .on("start", cmd => {
-        console.log("FFmpeg:", cmd);
-      })
-      .on("stderr", line => {
-        console.log("ffmpeg:", line);
-      })
-      .on("error", err => {
-        console.error("FFmpeg Error:", err);
-        restartStream(url, lang, ws, state);
-      })
-      const audioStream = state.recognizeStream.stream();
-
-    audioStream.on("error", (err) => {
-      console.error("Audio stream error:", err);
-    });
-    
-    const webWritable = state.recognizeStream.stream();
-    const nodeWritable = Writable.fromWeb(webWritable);
-    
+  
     state.ffmpegStream = command
       .noVideo()
       .audioCodec("pcm_s16le")
@@ -192,19 +167,19 @@ if (cluster.isPrimary) {
         restartStream(url, lang, ws, state);
       })
       .pipe();
-    
+  
     state.ffmpegStream.on("data", (chunk) => {
       console.log("Audio chunk:", chunk.length);
     });
-    
+  
     state.ffmpegStream.pipe(nodeWritable);
-
+  
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
     }, 270000);
   }
 
-  function restartStream(url, lang, ws, state) {
+  async function restartStream(url, lang, ws, state) {
     console.log(`🔄 Restart (${process.pid})`);
   
     await stopStreaming(state);
