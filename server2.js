@@ -93,6 +93,21 @@ if (cluster.isPrimary) {
     });
     
     await rt.connect();
+    rt.on("open", (session) => {
+      console.log("AssemblyAI connected:", session);
+    });
+    
+    rt.on("turn", (turn) => {
+      console.log("TURN:", turn.transcript);
+    });
+    
+    rt.on("error", (err) => {
+      console.error("AssemblyAI ERROR:", err);
+    });
+    
+    rt.on("close", (code, reason) => {
+      console.log("AssemblyAI CLOSED:", code, reason);
+    });
     
     state.recognizeStream = rt;
     
