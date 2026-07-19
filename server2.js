@@ -6,7 +6,7 @@ import { WebSocketServer } from "ws";
 import { AssemblyAI } from "assemblyai";
 import ffmpeg from "fluent-ffmpeg";
 import axios from "axios";
-
+import { Writable } from "node:stream";
 ffmpeg.setFfmpegPath("/usr/bin/ffmpeg");
 
 const numCPUs = 2; // your Render CPUs
@@ -87,11 +87,12 @@ if (cluster.isPrimary) {
     const realUrl = await resolveStream(url);
 
     const rt = client.streaming.transcriber({
-      console.log("stream() exists:", typeof rt.stream);
+      
       sampleRate: 16000,
       speechModel: "universal-3-5-pro",
       mode: "balanced",
     });
+    console.log("stream() exists:", typeof rt.stream);
     
     console.log("Connecting to AssemblyAI...");
 
@@ -167,23 +168,36 @@ if (cluster.isPrimary) {
       })
       const audioStream = state.recognizeStream.stream();
 
-      audioStream.on("error", (err) => {
-        console.error("Audio stream error:", err);
-      });
-      
-      state.ffmpegStream = command
-        .noVideo()
-        .audioCodec("pcm_s16le")
-        .audioFrequency(16000)
-        .audioChannels(1)
-        .format("s16le")
-        .pipe();
-      
-      state.ffmpegStream.on("data", (chunk) => {
-        console.log("Audio chunk:", chunk.length);
-      });
-      
-      state.ffmpegStream.pipe(audioStream);
+    audioStream.on("error", (err) => {
+      console.error("Audio stream error:", err);
+    });
+    
+    const webWritable = state.recognizeStream.stream();
+    const nodeWritable = Writable.fromWeb(webWritable);
+    
+    state.ffmpegStream = command
+      .noVideo()
+      .audioCodec("pcm_s16le")
+      .audioFrequency(16000)
+      .audioChannels(1)
+      .format("s16le")
+      .on("start", (cmd) => {
+        console.log("FFmpeg:", cmd);
+      })
+      .on("stderr", (line) => {
+        console.log("ffmpeg:", line);
+      })
+      .on("error", (err) => {
+        console.error("FFmpeg Error:", err);
+        restartStream(url, lang, ws, state);
+      })
+      .pipe();
+    
+    state.ffmpegStream.on("data", (chunk) => {
+      console.log("Audio chunk:", chunk.length);
+    });
+    
+    state.ffmpegStream.pipe(nodeWritable);
 
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
@@ -193,7 +207,7 @@ if (cluster.isPrimary) {
   function restartStream(url, lang, ws, state) {
     console.log(`🔄 Restart (${process.pid})`);
   
-    stopStreaming(state);
+    await stopStreaming(state);
   
     setTimeout(() => {
       startStreaming(url, lang, ws, state);
@@ -223,7 +237,7 @@ if (cluster.isPrimary) {
         if (data.type === "start") {
           if (state.isStreaming && state.currentLang === data.lang) return;
         
-          stopStreaming(state);
+          await stopStreaming(state);
         
           state.currentLang = data.lang;
         
@@ -233,7 +247,7 @@ if (cluster.isPrimary) {
         }
 
         if (data.type === "stop") {
-          stopStreaming(state);
+          await stopStreaming(state);
         }
 
       } catch (err) {
