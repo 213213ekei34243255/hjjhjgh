@@ -88,23 +88,37 @@ if (cluster.isPrimary) {
     const request = {
       config: {
         encoding: "LINEAR16",
-        sampleRateHertz: 8000,
+        sampleRateHertz: 16000,
         languageCode: lang || "en-US",
+        enableAutomaticPunctuation: true,
       },
-      interimResults: false,
+      interimResults: true,
     };
 
     state.recognizeStream = client
       .streamingRecognize(request)
-      .on("error", () => restartStream(url, lang, ws, state))
+      .on("error", (err) => {
+        console.error("Google Speech Error:", err);
+        restartStream(url, lang, ws, state);
+      })
       .on("data", (data) => {
+        console.log("Google Response:", JSON.stringify(data));
+    
         const result = data.results?.[0];
-        if (!result || !result.isFinal) return;
-
+        if (!result) return;
+    
         const transcript = result.alternatives?.[0]?.transcript;
-
+    
         if (transcript) {
-          ws.send(JSON.stringify({ text: transcript, lang }));
+          console.log("Transcript:", transcript);
+    
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              text: transcript,
+              lang,
+              final: result.isFinal,
+            }));
+          }
         }
       });
 
@@ -123,10 +137,19 @@ if (cluster.isPrimary) {
     state.ffmpegStream = command
       .noVideo()
       .audioCodec("pcm_s16le")
-      .audioFrequency(8000)
+      .audioFrequency(16000)
       .audioChannels(1)
       .format("s16le")
-      .on("error", () => restartStream(url, lang, ws, state))
+      .on("start", cmd => {
+        console.log("FFmpeg:", cmd);
+      })
+      .on("stderr", line => {
+        console.log("ffmpeg:", line);
+      })
+      .on("error", err => {
+        console.error("FFmpeg Error:", err);
+        restartStream(url, lang, ws, state);
+      })
       .pipe(state.recognizeStream);
 
     state.restartTimer = setTimeout(() => {
@@ -135,16 +158,12 @@ if (cluster.isPrimary) {
   }
 
   function restartStream(url, lang, ws, state) {
-    if (!state.isStreaming) return;
-
     console.log(`🔄 Restart (${process.pid})`);
-
+  
     stopStreaming(state);
-
+  
     setTimeout(() => {
-      if (state.isStreaming !== false) {
-        startStreaming(url, lang, ws, state);
-      }
+      startStreaming(url, lang, ws, state);
     }, 800);
   }
 
