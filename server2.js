@@ -120,19 +120,15 @@ if (cluster.isPrimary) {
     });
   
     rt.on("turn", (turn) => {
-      console.log("TURN:", turn.transcript);
-  
-      if (!turn.transcript) return;
-  
-      if (ws.readyState === ws.OPEN) {
-        ws.send(
-          JSON.stringify({
+        if (!turn.end_of_turn) return;   // Ignore partials
+
+        if (!turn.transcript) return;
+
+        ws.send(JSON.stringify({
             text: turn.transcript,
             lang,
-            final: turn.end_of_turn,
-          })
-        );
-      }
+            final: true
+        }));
     });
   
     rt.on("error", (err) => {
