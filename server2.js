@@ -92,7 +92,15 @@ if (cluster.isPrimary) {
       mode: "balanced",
     });
     
-    await rt.connect();
+    console.log("Connecting to AssemblyAI...");
+
+    try {
+      await rt.connect();
+      console.log("✅ connect() finished");
+    } catch (e) {
+      console.error("❌ connect() failed:", e);
+      return;
+    }
     rt.on("open", (session) => {
       console.log("AssemblyAI connected:", session);
     });
