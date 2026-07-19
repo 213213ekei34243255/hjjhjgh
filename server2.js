@@ -87,6 +87,7 @@ if (cluster.isPrimary) {
     const realUrl = await resolveStream(url);
 
     const rt = client.streaming.transcriber({
+      console.log("stream() exists:", typeof rt.stream);
       sampleRate: 16000,
       speechModel: "universal-3-5-pro",
       mode: "balanced",
@@ -164,7 +165,25 @@ if (cluster.isPrimary) {
         console.error("FFmpeg Error:", err);
         restartStream(url, lang, ws, state);
       })
-      .pipe(state.recognizeStream.stream());
+      const audioStream = state.recognizeStream.stream();
+
+      audioStream.on("error", (err) => {
+        console.error("Audio stream error:", err);
+      });
+      
+      state.ffmpegStream = command
+        .noVideo()
+        .audioCodec("pcm_s16le")
+        .audioFrequency(16000)
+        .audioChannels(1)
+        .format("s16le")
+        .pipe();
+      
+      state.ffmpegStream.on("data", (chunk) => {
+        console.log("Audio chunk:", chunk.length);
+      });
+      
+      state.ffmpegStream.pipe(audioStream);
 
     state.restartTimer = setTimeout(() => {
       restartStream(url, lang, ws, state);
